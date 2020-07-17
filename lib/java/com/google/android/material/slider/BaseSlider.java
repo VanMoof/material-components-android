@@ -54,6 +54,7 @@ import androidx.core.math.MathUtils;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat.RangeInfoCompat;
+import androidx.core.widget.TextViewCompat;
 import androidx.customview.widget.ExploreByTouchHelper;
 import androidx.appcompat.content.res.AppCompatResources;
 import android.util.AttributeSet;
@@ -66,6 +67,8 @@ import android.view.ViewParent;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 import android.widget.SeekBar;
+import android.widget.TextView;
+
 import com.google.android.material.drawable.DrawableUtils;
 import com.google.android.material.internal.DescendantOffsetUtils;
 import com.google.android.material.internal.ThemeEnforcement;
@@ -255,9 +258,6 @@ abstract class BaseSlider<
   @NonNull private ColorStateList trackColorActive;
   @NonNull private ColorStateList trackColorInactive;
   @NonNull private ColorStateList labelLineColor;
-  @NonNull private ColorStateList tickLabelTextColor;
-  @NonNull private Typeface tickLabelTextTypeface;
-  @NonNull private int tickLabelTextSize;
   @NonNull private boolean fullSizeTicks;
   @NonNull private boolean drawTickLabels;
 
@@ -428,20 +428,13 @@ abstract class BaseSlider<
       setDrawTickLabels(fullSizeTicks);
     }
 
-    if (a.hasValue(R.styleable.Slider_tickLabelTextFont)) {
-      tickLabelTextTypeface = ResourcesCompat.getFont(context, a.getResourceId(R.styleable.Slider_tickLabelTextFont, -1));
-      setTickLabelTextTypeface(tickLabelTextTypeface);
-    }
+    int tickLabelTextAppearance =
+        a.getResourceId(R.styleable.Slider_tickLabelTextAppearance, R.style.TextAppearance_AppCompat_Caption);
 
-    int tickLabelTextSize = a.getDimensionPixelSize(R.styleable.Slider_tickLabelTextSize, context.getResources().getDimensionPixelSize(R.dimen.mtrl_slider_tick_label_text_size));
-    setTickLabelTextSize(tickLabelTextSize);
-
-    ColorStateList tickLabelTextColor = MaterialResources.getColorStateList(context, a, R.styleable.Slider_tickLabelTextColor);
-    setTickLabelTextColor(
-        tickLabelTextColor != null
-            ? tickLabelTextColor
-            : AppCompatResources.getColorStateList(
-            context, R.color.material_slider_label_line_color));
+    TextView textAppearanceToPaintBridgeTextView = new TextView(context);
+    TextViewCompat.setTextAppearance(textAppearanceToPaintBridgeTextView, tickLabelTextAppearance);
+    tickLabelTextPaint.set(textAppearanceToPaintBridgeTextView.getPaint());
+    tickLabelTextPaint.setColor(textAppearanceToPaintBridgeTextView.getTextColors().getDefaultColor());
 
     ColorStateList labelLineColor = MaterialResources.getColorStateList(context, a, R.styleable.Slider_labelLineColor);
     setLabelLineTintList(
@@ -1300,29 +1293,27 @@ abstract class BaseSlider<
 
   @NonNull
   public ColorStateList getTickLabelTextColor() {
-    return tickLabelTextColor;
+    return ColorStateList.valueOf(tickLabelTextPaint.getColor());
   }
 
   public void setTickLabelTextColor(@NonNull ColorStateList textColor) {
-    if (textColor.equals(tickLabelTextColor)) {
+    if (textColor.getDefaultColor() == tickLabelTextPaint.getColor()) {
       return;
     }
-    tickLabelTextColor = textColor;
-    tickLabelTextPaint.setColor(getColorForState(tickLabelTextColor));
+    tickLabelTextPaint.setColor(textColor.getDefaultColor());
     invalidate();
   }
 
   @NonNull
   public Typeface getTickLabelTextTypeface() {
-    return tickLabelTextTypeface;
+    return tickLabelTextPaint.getTypeface();
   }
 
   public void setTickLabelTextTypeface(@NonNull Typeface textTypeface) {
-    if (textTypeface.equals(tickLabelTextTypeface)) {
+    if (textTypeface.equals(tickLabelTextPaint.getTypeface())) {
       return;
     }
-    tickLabelTextTypeface = textTypeface;
-    tickLabelTextPaint.setTypeface(tickLabelTextTypeface);
+    tickLabelTextPaint.setTypeface(textTypeface);
     invalidate();
   }
 
@@ -1354,15 +1345,14 @@ abstract class BaseSlider<
 
   @Dimension
   public int getTickLabelTextSize() {
-    return tickLabelTextSize;
+    return (int) tickLabelTextPaint.getTextSize();
   }
 
   public void setTickLabelTextSize(int textSize) {
-    if (textSize == tickLabelTextSize) {
+    if (textSize == tickLabelTextPaint.getTextSize()) {
       return;
     }
-    tickLabelTextSize = textSize;
-    tickLabelTextPaint.setTextSize(tickLabelTextSize);
+    tickLabelTextPaint.setTextSize(textSize);
     invalidate();
   }
 

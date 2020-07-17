@@ -58,9 +58,7 @@
     <!-- The color of the label line. -->
     <attr name="labelLineColor" format="color" />
     <!-- The color of the label line. -->
-    <attr name="tickLabelTextFont" format="reference" />
-    <attr name="tickLabelTextColor" format="color" />
-    <attr name="tickLabelTextSize" format="dimension" />
+    <attr name="tickLabelTextAppearance" format="reference" />
     <attr name="fullSizeTicks" format="boolean" />
     <attr name="drawTickLabels" format="boolean" />
     <!-- The height of the track. -->
