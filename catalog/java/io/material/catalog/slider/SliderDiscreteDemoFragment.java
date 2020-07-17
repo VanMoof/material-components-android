@@ -49,6 +49,7 @@ public class SliderDiscreteDemoFragment extends DemoFragment {
     setUpSlider(view, R.id.switch_button_4, R.id.slider_4, new BasicLabelFormatter());
     setUpSlider(view, R.id.switch_button_5, R.id.slider_5, null);
     setUpSlider(view, R.id.switch_button_6, R.id.slider_6, null);
+    setUpSliderWithLabels(view, R.id.switch_button_7, R.id.slider_7);
 
     return view;
   }
@@ -61,5 +62,20 @@ public class SliderDiscreteDemoFragment extends DemoFragment {
     switchButton.setOnCheckedChangeListener(
         (buttonView, isChecked) -> slider.setEnabled(isChecked));
     switchButton.setChecked(true);
+  }
+
+  private void setUpSliderWithLabels(
+      View view, @IdRes int switchId, @IdRes int sliderId) {
+    final Slider slider = view.findViewById(sliderId);
+    SwitchCompat switchButton = view.findViewById(switchId);
+    switchButton.setOnCheckedChangeListener(
+        (buttonView, isChecked) -> slider.setEnabled(isChecked));
+    switchButton.setChecked(true);
+    slider.post(() -> {
+      slider.addTickLabel(200f, "this iy 200");
+      slider.addTickLabel(600f, "this is 600");
+      slider.addTickLabel(800f, "this is 800");
+      slider.setDrawTickLabels(true);
+    });
   }
 }

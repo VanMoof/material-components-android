@@ -44,6 +44,7 @@ import android.graphics.PorterDuff.Mode;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
 import android.graphics.Region.Op;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build.VERSION;
@@ -51,10 +52,21 @@ import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
+import androidx.annotation.ColorInt;
+import androidx.annotation.DimenRes;
+import androidx.annotation.Dimension;
+import androidx.annotation.IntDef;
+import androidx.annotation.IntRange;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
+import androidx.core.content.res.ResourcesCompat;
 import androidx.core.graphics.drawable.DrawableCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat.RangeInfoCompat;
+import androidx.core.widget.TextViewCompat;
+import androidx.customview.widget.ExploreByTouchHelper;
 import androidx.appcompat.content.res.AppCompatResources;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -78,6 +90,8 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.customview.widget.ExploreByTouchHelper;
 import com.google.android.material.animation.AnimationUtils;
+import android.widget.TextView;
+
 import com.google.android.material.drawable.DrawableUtils;
 import com.google.android.material.internal.DescendantOffsetUtils;
 import com.google.android.material.internal.ThemeEnforcement;
@@ -94,6 +108,7 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.TreeMap;
 import java.util.Iterator;
 import java.util.List;
 
@@ -228,6 +243,8 @@ abstract class BaseSlider<
   @NonNull private final Paint haloPaint;
   @NonNull private final Paint inactiveTicksPaint;
   @NonNull private final Paint activeTicksPaint;
+  @NonNull private final Paint tickLabelTextPaint;
+  @NonNull private final Paint labelLinePaint;
   @NonNull private final AccessibilityHelper accessibilityHelper;
   private final AccessibilityManager accessibilityManager;
   private AccessibilityEventSender accessibilityEventSender;
@@ -259,15 +276,18 @@ abstract class BaseSlider<
   private int thumbRadius;
   private int haloRadius;
   private int labelPadding;
+  private int thumbTickLabelSpacing;
   private float touchDownX;
   private MotionEvent lastEvent;
   private LabelFormatter formatter;
   private boolean thumbIsPressed = false;
   private float valueFrom;
   private float valueTo;
+  private Rect measuredTextBounds = new Rect();
   // Holds the values set to this slider. We keep this array sorted in order to check if the value
   // has been changed when a new value is set and to find the minimum and maximum values.
   private ArrayList<Float> values = new ArrayList<>();
+  private TreeMap<Float, String> tickLabels = new TreeMap<>();
   // The index of the currently touched thumb.
   private int activeThumbIdx = -1;
   // The index of the currently focused thumb.
@@ -285,6 +305,9 @@ abstract class BaseSlider<
   @NonNull private ColorStateList tickColorInactive;
   @NonNull private ColorStateList trackColorActive;
   @NonNull private ColorStateList trackColorInactive;
+  @NonNull private ColorStateList labelLineColor;
+  @NonNull private boolean fullSizeTicks;
+  @NonNull private boolean drawTickLabels;
 
   @NonNull private final MaterialShapeDrawable thumbDrawable = new MaterialShapeDrawable();
 
@@ -349,6 +372,9 @@ abstract class BaseSlider<
     activeTicksPaint.setStyle(Style.STROKE);
     activeTicksPaint.setStrokeCap(Cap.ROUND);
 
+    tickLabelTextPaint = new Paint();
+    labelLinePaint = new Paint();
+
     loadResources(context.getResources());
 
     // Because there's currently no way to copy the TooltipDrawable we use this to make more if more
@@ -394,6 +420,9 @@ abstract class BaseSlider<
     trackTop = resources.getDimensionPixelOffset(R.dimen.mtrl_slider_track_top);
 
     labelPadding = resources.getDimensionPixelSize(R.dimen.mtrl_slider_label_padding);
+
+    thumbTickLabelSpacing = resources.getDimensionPixelSize(R.dimen.mtrl_slider_thumb_tick_label_spacing);
+    labelLinePaint.setStrokeWidth(resources.getDimensionPixelSize(R.dimen.mtrl_slider_tick_label_line_size));
   }
 
   private void processAttributes(Context context, AttributeSet attrs, int defStyleAttr) {
@@ -404,6 +433,31 @@ abstract class BaseSlider<
     valueTo = a.getFloat(R.styleable.Slider_android_valueTo, 1.0f);
     setValues(valueFrom);
     stepSize = a.getFloat(R.styleable.Slider_android_stepSize, 0.0f);
+
+    if (a.hasValue(R.styleable.Slider_fullSizeTicks)) {
+      fullSizeTicks = a.getBoolean(R.styleable.Slider_fullSizeTicks, false);
+      setHasFullSizeTicks(fullSizeTicks);
+    }
+
+    if (a.hasValue(R.styleable.Slider_drawTickLabels)) {
+      drawTickLabels = a.getBoolean(R.styleable.Slider_drawTickLabels, false);
+      setDrawTickLabels(fullSizeTicks);
+    }
+
+    int tickLabelTextAppearance =
+        a.getResourceId(R.styleable.Slider_tickLabelTextAppearance, R.style.TextAppearance_AppCompat_Caption);
+
+    TextView textAppearanceToPaintBridgeTextView = new TextView(context);
+    TextViewCompat.setTextAppearance(textAppearanceToPaintBridgeTextView, tickLabelTextAppearance);
+    tickLabelTextPaint.set(textAppearanceToPaintBridgeTextView.getPaint());
+    tickLabelTextPaint.setColor(textAppearanceToPaintBridgeTextView.getTextColors().getDefaultColor());
+
+    ColorStateList labelLineColor = MaterialResources.getColorStateList(context, a, R.styleable.Slider_labelLineColor);
+    setLabelLineTintList(
+        labelLineColor != null
+            ? labelLineColor
+            : AppCompatResources.getColorStateList(
+            context, R.color.material_slider_label_line_color));
 
     boolean hasTrackColor = a.hasValue(R.styleable.Slider_trackColor);
 
@@ -587,6 +641,15 @@ abstract class BaseSlider<
       validateValues();
       warnAboutFloatingPointError();
       dirtyConfig = false;
+    }
+  }
+
+  public void addTickLabel(@NonNull Float value, @NonNull String text) {
+    Object previousValue = tickLabels.put(value, text);
+
+    if (!text.equals(previousValue) ) {
+      dirtyConfig = true;
+      postInvalidate();
     }
   }
 
@@ -1408,6 +1471,85 @@ abstract class BaseSlider<
     invalidate();
   }
 
+  @NonNull
+  public ColorStateList getLabelLineTintList() {
+    return labelLineColor;
+  }
+
+  public void setLabelLineTintList(@NonNull ColorStateList lineColor) {
+    if (lineColor.equals(labelLineColor)) {
+      return;
+    }
+    labelLineColor = lineColor;
+    labelLinePaint.setColor(getColorForState(labelLineColor));
+    invalidate();
+  }
+
+  @NonNull
+  public ColorStateList getTickLabelTextColor() {
+    return ColorStateList.valueOf(tickLabelTextPaint.getColor());
+  }
+
+  public void setTickLabelTextColor(@NonNull ColorStateList textColor) {
+    if (textColor.getDefaultColor() == tickLabelTextPaint.getColor()) {
+      return;
+    }
+    tickLabelTextPaint.setColor(textColor.getDefaultColor());
+    invalidate();
+  }
+
+  @NonNull
+  public Typeface getTickLabelTextTypeface() {
+    return tickLabelTextPaint.getTypeface();
+  }
+
+  public void setTickLabelTextTypeface(@NonNull Typeface textTypeface) {
+    if (textTypeface.equals(tickLabelTextPaint.getTypeface())) {
+      return;
+    }
+    tickLabelTextPaint.setTypeface(textTypeface);
+    invalidate();
+  }
+
+  public boolean getHasFullSizeTicks() {
+    return fullSizeTicks;
+  }
+
+  public void setHasFullSizeTicks(boolean hasFullSizeTicks) {
+    if (hasFullSizeTicks == fullSizeTicks) {
+      return;
+    }
+    fullSizeTicks = hasFullSizeTicks;
+    invalidate();
+  }
+
+  public boolean getDrawTickLabels() {
+    return drawTickLabels;
+  }
+
+  public void setDrawTickLabels(boolean drawTickLabelsEnabled) {
+    if (drawTickLabelsEnabled == drawTickLabels) {
+      return;
+    }
+    drawTickLabels = drawTickLabelsEnabled;
+    dirtyConfig = true;
+    invalidate();
+    requestLayout();
+  }
+
+  @Dimension
+  public int getTickLabelTextSize() {
+    return (int) tickLabelTextPaint.getTextSize();
+  }
+
+  public void setTickLabelTextSize(int textSize) {
+    if (textSize == tickLabelTextPaint.getTextSize()) {
+      return;
+    }
+    tickLabelTextPaint.setTextSize(textSize);
+    invalidate();
+  }
+
   @Override
   public void setEnabled(boolean enabled) {
     super.setEnabled(enabled);
@@ -1453,11 +1595,13 @@ abstract class BaseSlider<
 
   @Override
   protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+    tickLabelTextPaint.getTextBounds("fy", 0, 2, measuredTextBounds);
     super.onMeasure(
         widthMeasureSpec,
         MeasureSpec.makeMeasureSpec(
             widgetHeight
-                + (labelBehavior == LABEL_WITHIN_BOUNDS ? labels.get(0).getIntrinsicHeight() : 0),
+                + (labelBehavior == LABEL_WITHIN_BOUNDS ? labels.get(0).getIntrinsicHeight() : 0)
+                + (drawTickLabels && tickLabels.size() > 0 ? (int) (measuredTextBounds.height() * 2) : 0),
             MeasureSpec.EXACTLY));
   }
 
@@ -1510,8 +1654,10 @@ abstract class BaseSlider<
   }
 
   private int calculateTop() {
+    tickLabelTextPaint.getTextBounds("fy", 0, 2, measuredTextBounds);
     return trackTop
-        + (labelBehavior == LABEL_WITHIN_BOUNDS ? labels.get(0).getIntrinsicHeight() : 0);
+        + (labelBehavior == LABEL_WITHIN_BOUNDS ? labels.get(0).getIntrinsicHeight() : 0)
+        + ((drawTickLabels && tickLabels.size() > 0 ? measuredTextBounds.height(): 0));
   }
 
   @Override
@@ -1533,6 +1679,8 @@ abstract class BaseSlider<
     }
 
     maybeDrawTicks(canvas);
+
+    drawTickLabels(canvas);
 
     if ((thumbIsPressed || isFocused()) && isEnabled()) {
       maybeDrawHalo(canvas, trackWidth, top);
@@ -2013,6 +2161,46 @@ abstract class BaseSlider<
     return String.format((int) value == value ? "%.0f" : "%.2f", value);
   }
 
+  private void drawTickLabels(Canvas canvas) {
+    if (!drawTickLabels) {
+      return;
+    }
+
+    if (tickLabels == null || tickLabels.size() == 0) {
+      return;
+    }
+
+    int drawnLabelCount = 0;
+    for (Float value : tickLabels.keySet()) {
+      String text = tickLabels.get(value);
+
+      float textSize = tickLabelTextPaint.measureText(text);
+      int left =
+          trackSidePadding
+              + (int) (normalizeValue(value) * trackWidth)
+              - (int) (textSize / 2);
+
+      Rect textBounds = new Rect();
+      tickLabelTextPaint.getTextBounds(text, 0, text.length(), textBounds);
+
+      if (drawnLabelCount % 2 == 0) {
+        int top = calculateTop() - (trackHeight / 2);
+        float topLineTop = top - thumbRadius - (thumbRadius / 4f) + (trackHeight / 2f);
+
+        canvas.drawText(text, left, topLineTop - thumbTickLabelSpacing - tickLabelTextPaint.descent(), tickLabelTextPaint);
+        canvas.drawLine(left + (textSize / 2), top, left + (textSize / 2), topLineTop, labelLinePaint);
+      } else {
+        int bottom = calculateTop() + (trackHeight / 2);
+        float bottomLineBottom = bottom + thumbRadius + (thumbRadius / 4f) - (trackHeight / 2f);
+
+        canvas.drawText(text, left, bottomLineBottom + textBounds.height() + thumbTickLabelSpacing, tickLabelTextPaint);
+        canvas.drawLine(left + (textSize / 2), bottom, left + (textSize / 2), bottomLineBottom, labelLinePaint);
+      }
+
+      drawnLabelCount++;
+    }
+  }
+
   private void setValueForLabel(TooltipDrawable label, float value) {
     label.setText(formatValue(value));
 
@@ -2033,10 +2221,11 @@ abstract class BaseSlider<
   }
 
   private void invalidateTrack() {
+    float tickScaleRatio = fullSizeTicks ? 1.0f : 2.0f;
     inactiveTrackPaint.setStrokeWidth(trackHeight);
     activeTrackPaint.setStrokeWidth(trackHeight);
-    inactiveTicksPaint.setStrokeWidth(trackHeight / 2.0f);
-    activeTicksPaint.setStrokeWidth(trackHeight / 2.0f);
+    inactiveTicksPaint.setStrokeWidth(trackHeight / tickScaleRatio);
+    activeTicksPaint.setStrokeWidth(trackHeight / tickScaleRatio);
   }
 
   /**
@@ -2394,6 +2583,7 @@ abstract class BaseSlider<
     sliderState.values = new ArrayList<>(values);
     sliderState.stepSize = stepSize;
     sliderState.hasFocus = hasFocus();
+    sliderState.tickLabels = tickLabels;
     return sliderState;
   }
 
@@ -2409,6 +2599,7 @@ abstract class BaseSlider<
     if (sliderState.hasFocus) {
       requestFocus();
     }
+    tickLabels = sliderState.tickLabels;
     dispatchOnChangedProgramatically();
   }
 
@@ -2419,6 +2610,7 @@ abstract class BaseSlider<
     ArrayList<Float> values;
     float stepSize;
     boolean hasFocus;
+    TreeMap<Float, String> tickLabels;
 
     public static final Creator<SliderState> CREATOR =
         new Creator<SliderState>() {
@@ -2448,6 +2640,7 @@ abstract class BaseSlider<
       source.readList(values, Float.class.getClassLoader());
       stepSize = source.readFloat();
       hasFocus = source.createBooleanArray()[0];
+      source.readMap(tickLabels, TreeMap.class.getClassLoader());
     }
 
     @Override
@@ -2460,6 +2653,7 @@ abstract class BaseSlider<
       boolean[] booleans = new boolean[1];
       booleans[0] = hasFocus;
       dest.writeBooleanArray(booleans);
+      dest.writeMap(tickLabels);
     }
   }
 

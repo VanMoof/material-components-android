@@ -63,6 +63,12 @@
     <attr name="trackColorActive" format="color" />
     <!-- The color of inactive portion of the track. -->
     <attr name="trackColorInactive" format="color" />
+    <!-- The color of the label line. -->
+    <attr name="labelLineColor" format="color" />
+    <!-- The color of the label line. -->
+    <attr name="tickLabelTextAppearance" format="reference" />
+    <attr name="fullSizeTicks" format="boolean" />
+    <attr name="drawTickLabels" format="boolean" />
     <!-- The height of the track. -->
     <attr name="trackHeight" format="dimension" />
   </declare-styleable>
