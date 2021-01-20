@@ -69,6 +69,8 @@
     <attr name="tickLabelTextAppearance" format="reference" />
     <attr name="fullSizeTicks" format="boolean" />
     <attr name="drawTickLabels" format="boolean" />
+    <attr name="upperLimit" format="float" />
+    <attr name="lowerLimit" format="float" />
     <!-- The height of the track. -->
     <attr name="trackHeight" format="dimension" />
   </declare-styleable>

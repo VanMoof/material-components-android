@@ -288,6 +288,8 @@ abstract class BaseSlider<
   // has been changed when a new value is set and to find the minimum and maximum values.
   private ArrayList<Float> values = new ArrayList<>();
   private TreeMap<Float, String> tickLabels = new TreeMap<>();
+  private float lowerLimit = Float.MIN_VALUE;
+  private float upperLimit = Float.MAX_VALUE;
   // The index of the currently touched thumb.
   private int activeThumbIdx = -1;
   // The index of the currently focused thumb.
@@ -433,6 +435,8 @@ abstract class BaseSlider<
     valueTo = a.getFloat(R.styleable.Slider_android_valueTo, 1.0f);
     setValues(valueFrom);
     stepSize = a.getFloat(R.styleable.Slider_android_stepSize, 0.0f);
+    lowerLimit = a.getFloat(R.styleable.Slider_lowerLimit, Float.MIN_VALUE);
+    upperLimit = a.getFloat(R.styleable.Slider_upperLimit, Float.MAX_VALUE);
 
     if (a.hasValue(R.styleable.Slider_fullSizeTicks)) {
       fullSizeTicks = a.getBoolean(R.styleable.Slider_fullSizeTicks, false);
@@ -731,6 +735,23 @@ abstract class BaseSlider<
     setValuesInternal(list);
   }
 
+  public float getLowerLimit() {
+    return this.lowerLimit;
+  }
+
+  public void setLowerLimit(float lowerLimit) {
+    this.lowerLimit = lowerLimit;
+  }
+
+  public float getUpperLimit() {
+    return this.upperLimit;
+  }
+
+  public void setUpperLimit(float upperLimit) {
+    this.upperLimit = upperLimit;
+  }
+
+
   /**
    * Sets multiple values for the slider. Each value will represent a different thumb.
    *
@@ -765,6 +786,17 @@ abstract class BaseSlider<
       if (this.values.equals(values)) {
         return;
       }
+    }
+
+    for(int i = 0; i < values.size(); ++i) {
+      float value = (Float)values.get(i);
+      if (value < this.lowerLimit) {
+        value = this.lowerLimit;
+      } else if (value > this.upperLimit) {
+        value = this.upperLimit;
+      }
+
+      values.set(i, value);
     }
 
     this.values = values;
@@ -1991,7 +2023,14 @@ abstract class BaseSlider<
       return false;
     }
 
+    if (value < this.lowerLimit) {
+      value = this.lowerLimit;
+    } else if (value > this.upperLimit) {
+      value = this.upperLimit;
+    }
+
     float newValue = getClampedValue(idx, value);
+
     // Replace the old value with the new value of the touch position.
     values.set(idx, newValue);
     focusedThumbIdx = idx;
